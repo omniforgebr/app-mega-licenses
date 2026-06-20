@@ -6,6 +6,7 @@ import type { ClientRecord } from './types';
 
 export interface Env {
   LICENSES: KVNamespace;
+  SEATS_DB: D1Database;       // D1 — seats (contagem fortemente consistente)
   SIGNING_KEY: string;        // pkcs8 base64 (Secret)
   GITHUB_TOKEN: string;       // Secret
   GITHUB_REPO: string;        // "omniforge/app-mega-licenses"

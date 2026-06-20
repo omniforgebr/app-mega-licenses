@@ -23,3 +23,8 @@ export function countActive(seats: Seat[], now: Date): number {
 export function withinQuota(activeCount: number, quota: number): boolean {
   return activeCount < quota;
 }
+
+// ISO do limite de inatividade: seats com last_seen > este valor contam como ativos.
+export function activeCutoff(now: Date): string {
+  return new Date(now.getTime() - ACTIVE_WINDOW_DAYS * MS_PER_DAY).toISOString();
+}

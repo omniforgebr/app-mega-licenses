@@ -1,10 +1,11 @@
-import { countActive, withinQuota } from './seats';
-import { getSeat, upsertSeat, deleteSeat, listSeats, getReseller } from './seatStore';
+import { withinQuota, activeCutoff } from './seats';
+import { getSeat, upsertSeat, deleteSeat, listSeats, countActiveSeats, getReseller } from './seatStore';
 import { issueSessionToken, verifySessionToken } from './sessionToken';
 import type { Seat } from './types';
 
 export interface SeatEnv {
-  LICENSES: KVNamespace;
+  LICENSES: KVNamespace;      // revendedores (reseller:<id>)
+  SEATS_DB: D1Database;       // seats (contagem fortemente consistente)
   SIGNING_KEY: string;        // privada pkcs8 base64 (assina o token de sessão)
   SEAT_PUBLIC_KEY: string;    // pública raw base64 (verifica o token no heartbeat)
   MEGA_WORKER_SECRET: string; // login do Mega -> /seat/activate
@@ -82,18 +83,18 @@ export async function handleSeatRoute(
       if (!reseller) return jsonResponse({ status: 'unknown_reseller' }, 403);
       if (reseller.status === 'suspended') return jsonResponse({ status: 'suspended' }, 403);
 
-      const existing = await getSeat(env.LICENSES, ids.reseller_id, ids.user_id, ids.device_id);
+      const existing = await getSeat(env.SEATS_DB, ids.reseller_id, ids.user_id, ids.device_id);
       let seat: Seat;
       if (existing) {
         seat = { ...existing, last_seen: now.toISOString() }; // renovação — não conta cota
       } else {
-        const ativos = countActive(await listSeats(env.LICENSES, ids.reseller_id), now);
+        const ativos = await countActiveSeats(env.SEATS_DB, ids.reseller_id, activeCutoff(now));
         if (!withinQuota(ativos, reseller.plano_cota)) {
           return jsonResponse({ status: 'quota_exceeded' }, 403);
         }
         seat = { ...ids, first_seen: now.toISOString(), last_seen: now.toISOString() };
       }
-      await upsertSeat(env.LICENSES, seat);
+      await upsertSeat(env.SEATS_DB, seat);
       const token = await issueSessionToken(env.SIGNING_KEY, { ...ids, status: reseller.status }, now, TOKEN_TTL);
       return jsonResponse({ status: 'active', token, exp_in: TOKEN_TTL }, 200);
     } catch (e) {
@@ -115,9 +116,9 @@ export async function handleSeatRoute(
       const reseller = await getReseller(env.LICENSES, claims.reseller_id);
       if (!reseller || reseller.status === 'suspended') return jsonResponse({ status: 'suspended' }, 403);
 
-      const existing = await getSeat(env.LICENSES, claims.reseller_id, claims.user_id, claims.device_id);
+      const existing = await getSeat(env.SEATS_DB, claims.reseller_id, claims.user_id, claims.device_id);
       if (!existing) return jsonResponse({ status: 'no_seat' }, 404);
-      await upsertSeat(env.LICENSES, { ...existing, last_seen: now.toISOString() });
+      await upsertSeat(env.SEATS_DB, { ...existing, last_seen: now.toISOString() });
       return jsonResponse({ status: 'ok' }, 200);
     } catch (e) {
       return errResp(e);
@@ -130,7 +131,7 @@ export async function handleSeatRoute(
       if (!authed(req, env.ADMIN_TOKEN)) return jsonResponse({ status: 'forbidden' }, 403);
       const ids = readSeatIds(await req.json());
       if (!ids) return jsonResponse({ status: 'bad_request' }, 400);
-      await deleteSeat(env.LICENSES, ids.reseller_id, ids.user_id, ids.device_id);
+      await deleteSeat(env.SEATS_DB, ids.reseller_id, ids.user_id, ids.device_id);
       return jsonResponse({ status: 'revoked' }, 200);
     } catch (e) {
       return errResp(e);
@@ -145,11 +146,12 @@ export async function handleSeatRoute(
       if (!reseller_id) return jsonResponse({ status: 'bad_request' }, 400);
       const reseller = await getReseller(env.LICENSES, reseller_id);
       if (!reseller) return jsonResponse({ status: 'not_found' }, 404);
-      const seats = await listSeats(env.LICENSES, reseller_id);
+      const seats = await listSeats(env.SEATS_DB, reseller_id);
+      const ativos = await countActiveSeats(env.SEATS_DB, reseller_id, activeCutoff(now));
       return jsonResponse(
         {
           cota: reseller.plano_cota,
-          ativos: countActive(seats, now),
+          ativos,
           seats: seats.map((s) => ({ user_id: s.user_id, device_id: s.device_id, last_seen: s.last_seen })),
         },
         200,
