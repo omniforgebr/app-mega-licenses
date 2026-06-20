@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import { handleSeatRoute, type SeatEnv } from '../src/seatRoutes';
+import { issueSessionToken } from '../src/sessionToken';
 import type { Reseller, Seat } from '../src/types';
 
 interface FakeKV extends KVNamespace {
@@ -28,12 +29,19 @@ function fakeKV(): FakeKV {
   } as unknown as FakeKV;
 }
 
-async function makeEnv(): Promise<{ env: SeatEnv; kv: FakeKV }> {
+async function makeEnv(): Promise<{ env: SeatEnv; kv: FakeKV; priv: string }> {
   const kp = await webcrypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const priv = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', kp.privateKey)).toString('base64');
+  const pub = Buffer.from(await webcrypto.subtle.exportKey('raw', kp.publicKey)).toString('base64');
   const kv = fakeKV();
-  const env: SeatEnv = { LICENSES: kv, SIGNING_KEY: priv, MEGA_WORKER_SECRET: 'mega-secret', ADMIN_TOKEN: 'admin-secret' };
-  return { env, kv };
+  const env: SeatEnv = {
+    LICENSES: kv,
+    SIGNING_KEY: priv,
+    SEAT_PUBLIC_KEY: pub,
+    MEGA_WORKER_SECRET: 'mega-secret',
+    ADMIN_TOKEN: 'admin-secret',
+  };
+  return { env, kv, priv };
 }
 
 const now = new Date('2026-06-20T12:00:00Z');
@@ -112,18 +120,35 @@ describe('seatRoutes /seat/activate', () => {
 });
 
 describe('seatRoutes heartbeat / revoke / usage', () => {
-  it('heartbeat renews existing → ok', async () => {
-    const { env, kv } = await makeEnv();
+  const hbReq = (token: string) =>
+    new Request('https://w/seat/heartbeat', { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+
+  it('heartbeat renews existing (token de sessão válido) → ok', async () => {
+    const { env, kv, priv } = await makeEnv();
     seedReseller(kv, 5);
     seedSeat(kv, 'u1', 'd1', '2026-06-19T00:00:00Z');
-    const r = await handleSeatRoute(post('/seat/heartbeat', { reseller_id: RID, user_id: 'u1', device_id: 'd1' }, 'mega-secret'), u('/seat/heartbeat'), env, now);
+    const token = await issueSessionToken(priv, { reseller_id: RID, user_id: 'u1', device_id: 'd1', status: 'active' }, now);
+    const r = await handleSeatRoute(hbReq(token), u('/seat/heartbeat'), env, now);
     expect((await r!.json()).status).toBe('ok');
   });
   it('heartbeat 404 when no seat', async () => {
+    const { env, kv, priv } = await makeEnv();
+    seedReseller(kv, 5);
+    const token = await issueSessionToken(priv, { reseller_id: RID, user_id: 'ux', device_id: 'dx', status: 'active' }, now);
+    const r = await handleSeatRoute(hbReq(token), u('/seat/heartbeat'), env, now);
+    expect(r?.status).toBe(404);
+  });
+  it('heartbeat 401 with invalid token', async () => {
     const { env, kv } = await makeEnv();
     seedReseller(kv, 5);
-    const r = await handleSeatRoute(post('/seat/heartbeat', { reseller_id: RID, user_id: 'ux', device_id: 'dx' }, 'mega-secret'), u('/seat/heartbeat'), env, now);
-    expect(r?.status).toBe(404);
+    const r = await handleSeatRoute(hbReq('garbage'), u('/seat/heartbeat'), env, now);
+    expect(r?.status).toBe(401);
+  });
+  it('heartbeat 403 without token', async () => {
+    const { env, kv } = await makeEnv();
+    seedReseller(kv, 5);
+    const r = await handleSeatRoute(new Request('https://w/seat/heartbeat', { method: 'POST' }), u('/seat/heartbeat'), env, now);
+    expect(r?.status).toBe(403);
   });
   it('revoke (admin) deletes seat', async () => {
     const { env, kv } = await makeEnv();

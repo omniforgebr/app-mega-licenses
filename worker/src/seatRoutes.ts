@@ -1,13 +1,14 @@
 import { countActive, withinQuota } from './seats';
 import { getSeat, upsertSeat, deleteSeat, listSeats, getReseller } from './seatStore';
-import { issueSessionToken } from './sessionToken';
+import { issueSessionToken, verifySessionToken } from './sessionToken';
 import type { Seat } from './types';
 
 export interface SeatEnv {
   LICENSES: KVNamespace;
-  SIGNING_KEY: string;
-  MEGA_WORKER_SECRET: string;
-  ADMIN_TOKEN: string;
+  SIGNING_KEY: string;        // privada pkcs8 base64 (assina o token de sessão)
+  SEAT_PUBLIC_KEY: string;    // pública raw base64 (verifica o token no heartbeat)
+  MEGA_WORKER_SECRET: string; // login do Mega -> /seat/activate
+  ADMIN_TOKEN: string;        // portal -> /seat/revoke, /reseller/usage
 }
 
 const TOKEN_TTL = 172800; // 48h — deve casar com o default de issueSessionToken
@@ -28,9 +29,13 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function authed(req: Request, secret: string): boolean {
+function getBearer(req: Request): string | null {
   const h = req.headers.get('authorization') || '';
-  const bearer = h.startsWith('Bearer ') ? h.slice(7) : null;
+  return h.startsWith('Bearer ') ? h.slice(7) : null;
+}
+
+function authed(req: Request, secret: string): boolean {
+  const bearer = getBearer(req);
   return bearer !== null && timingSafeEqual(bearer, secret);
 }
 
@@ -99,14 +104,18 @@ export async function handleSeatRoute(
   if (path === '/seat/heartbeat') {
     if (req.method !== 'POST') return jsonResponse({ status: 'method_not_allowed' }, 405);
     try {
-      if (!authed(req, env.MEGA_WORKER_SECRET)) return jsonResponse({ status: 'forbidden' }, 403);
-      const ids = readSeatIds(await req.json());
-      if (!ids) return jsonResponse({ status: 'bad_request' }, 400);
+      // O app se autentica com o PRÓPRIO token de sessão (não tem o MEGA_WORKER_SECRET).
+      // O token é verificado com a chave pública e os IDs vêm dos claims assinados —
+      // ninguém renova o seat de outro device.
+      const bearer = getBearer(req);
+      if (!bearer) return jsonResponse({ status: 'forbidden' }, 403);
+      const claims = await verifySessionToken(bearer, env.SEAT_PUBLIC_KEY, now);
+      if (!claims) return jsonResponse({ status: 'invalid_token' }, 401);
 
-      const reseller = await getReseller(env.LICENSES, ids.reseller_id);
+      const reseller = await getReseller(env.LICENSES, claims.reseller_id);
       if (!reseller || reseller.status === 'suspended') return jsonResponse({ status: 'suspended' }, 403);
 
-      const existing = await getSeat(env.LICENSES, ids.reseller_id, ids.user_id, ids.device_id);
+      const existing = await getSeat(env.LICENSES, claims.reseller_id, claims.user_id, claims.device_id);
       if (!existing) return jsonResponse({ status: 'no_seat' }, 404);
       await upsertSeat(env.LICENSES, { ...existing, last_seen: now.toISOString() });
       return jsonResponse({ status: 'ok' }, 200);

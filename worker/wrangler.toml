@@ -13,3 +13,4 @@ crons = ["0 */4 * * *"]            # every 4h
 [vars]
 GITHUB_REPO = "omniforgebr/app-mega-licenses"
 KID = "of-license-2026"
+SEAT_PUBLIC_KEY = "REPLACE_WITH_PUBLIC_KEY"   # raw base64 (par da SIGNING_KEY) — saida do keygen
