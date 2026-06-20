@@ -16,6 +16,7 @@ export async function fetchSubscriptionPayments(
   subId: string,
   base = 'https://api.asaas.com/v3',
 ): Promise<AsaasPayment[]> {
+  // I5: Asaas returns payments desc by dueDate; 100 covers years of monthly invoices.
   const r = await fetch(`${base}/payments?subscription=${encodeURIComponent(subId)}&limit=100`, {
     headers: { access_token: apiKey },
   });

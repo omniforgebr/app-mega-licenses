@@ -16,7 +16,7 @@ export async function putFile(repo: string, path: string, content: string, token
   const sha = await getSha(repo, path, token);
   const body = JSON.stringify({
     message: `license: update ${path}`,
-    content: btoa(unescape(encodeURIComponent(content))),
+    content: btoa(content), // m1: manifest JSON is ASCII; plain btoa is sufficient.
     ...(sha ? { sha } : {}),
   });
   const r = await fetch(`${API}/repos/${repo}/contents/${path}`, { method: 'PUT', headers: headers(token), body });

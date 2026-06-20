@@ -18,8 +18,10 @@ export async function buildManifest(opts: {
   // so both must agree on the canonical form (Task 3).
   const key = await sha256Hex(normalizeDomain(opts.dominio));
   const status = computeStatus(opts.paidThrough, GRACE_DAYS, opts.now, opts.override);
-  const paid_through = opts.paidThrough ?? opts.now.toISOString().slice(0, 10);
-  const grace_until = opts.paidThrough ? graceUntil(opts.paidThrough, GRACE_DAYS) : paid_through;
+  // I2: use sentinel '1970-01-01' when there is no paid record so the manifest
+  // is unambiguously expired and the app never mistakes it for "paid today".
+  const paid_through = opts.paidThrough ?? '1970-01-01';
+  const grace_until = opts.paidThrough ? graceUntil(opts.paidThrough, GRACE_DAYS) : '1970-01-01';
   return {
     v: 1,
     key,

@@ -2,46 +2,123 @@ import { reissueClient, type Env } from './publish';
 import { listClients, getClientBySubscription, getClientByDomain, setOverride, putClient } from './store';
 import type { Override, ClientRecord } from './types';
 
+// I1: timing-safe token comparison to prevent timing-oracle attacks.
+function timingSafeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.byteLength !== eb.byteLength) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.byteLength; i++) diff |= ea[i] ^ eb[i];
+  return diff === 0;
+}
+
+const VALID_OVERRIDES = new Set<Override>(['none', 'force_active', 'force_suspended']);
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
     if (req.method === 'POST' && url.pathname === '/webhook/asaas') {
-      if (req.headers.get('asaas-access-token') !== env.ASAAS_WEBHOOK_TOKEN) return new Response('forbidden', { status: 403 });
-      const body = (await req.json()) as { payment?: { subscription?: string } };
-      const subId = body.payment?.subscription;
-      if (subId) {
-        const rec = await getClientBySubscription(env.LICENSES, subId);
-        if (rec) await reissueClient(env, rec, new Date());
+      // C2: wrap route body; parse errors → 400, other errors → 500.
+      try {
+        // I1: timing-safe token check.
+        if (!timingSafeEqual(req.headers.get('asaas-access-token') ?? '', env.ASAAS_WEBHOOK_TOKEN)) {
+          return new Response('forbidden', { status: 403 });
+        }
+        let body: { payment?: { subscription?: string } };
+        try {
+          body = (await req.json()) as { payment?: { subscription?: string } };
+        } catch {
+          console.error('asaas webhook: malformed JSON body');
+          return new Response('bad request', { status: 400 });
+        }
+        const subId = body.payment?.subscription;
+        if (subId) {
+          const rec = await getClientBySubscription(env.LICENSES, subId);
+          if (rec) await reissueClient(env, rec, new Date());
+        }
+        return new Response('ok');
+      } catch (err) {
+        console.error('asaas webhook error:', err);
+        return new Response('internal error', { status: 500 });
       }
-      return new Response('ok');
     }
 
     if (req.method === 'POST' && url.pathname === '/admin/override') {
-      if (req.headers.get('authorization') !== `Bearer ${env.ADMIN_TOKEN}`) return new Response('forbidden', { status: 403 });
-      const { dominio, override } = (await req.json()) as { dominio: string; override: Override };
-      await setOverride(env.LICENSES, dominio, override);
-      const rec = await getClientByDomain(env.LICENSES, dominio);
-      if (rec) await reissueClient(env, rec, new Date());
-      return new Response('ok');
+      // C2: wrap route body.
+      try {
+        // I1: timing-safe token check.
+        if (!timingSafeEqual(req.headers.get('authorization') ?? '', `Bearer ${env.ADMIN_TOKEN}`)) {
+          return new Response('forbidden', { status: 403 });
+        }
+        let parsed: { dominio: string; override: Override };
+        try {
+          parsed = (await req.json()) as { dominio: string; override: Override };
+        } catch {
+          console.error('admin/override: malformed JSON body');
+          return new Response('bad request', { status: 400 });
+        }
+        const { dominio, override } = parsed;
+        // m3: validate override value.
+        if (!VALID_OVERRIDES.has(override)) {
+          return new Response('bad request: override must be none|force_active|force_suspended', { status: 400 });
+        }
+        await setOverride(env.LICENSES, dominio, override);
+        const rec = await getClientByDomain(env.LICENSES, dominio);
+        if (rec) await reissueClient(env, rec, new Date());
+        return new Response('ok');
+      } catch (err) {
+        console.error('admin/override error:', err);
+        return new Response('internal error', { status: 500 });
+      }
     }
 
     // Cadastro/atualização de ativação — gestão 100% na Cloudflare (sem VPS).
     if (req.method === 'POST' && url.pathname === '/admin/client') {
-      if (req.headers.get('authorization') !== `Bearer ${env.ADMIN_TOKEN}`) return new Response('forbidden', { status: 403 });
-      const rec = (await req.json()) as ClientRecord;
-      await putClient(env.LICENSES, rec);
-      await reissueClient(env, rec, new Date());
-      return new Response('ok');
+      // C2: wrap route body.
+      try {
+        // I1: timing-safe token check.
+        if (!timingSafeEqual(req.headers.get('authorization') ?? '', `Bearer ${env.ADMIN_TOKEN}`)) {
+          return new Response('forbidden', { status: 403 });
+        }
+        let rec: ClientRecord;
+        try {
+          rec = (await req.json()) as ClientRecord;
+        } catch {
+          console.error('admin/client: malformed JSON body');
+          return new Response('bad request', { status: 400 });
+        }
+        // C3: validate required fields before store.
+        if (
+          typeof rec.dominio !== 'string' || rec.dominio.trim() === '' ||
+          typeof rec.asaas_subscription_id !== 'string' || rec.asaas_subscription_id.trim() === '' ||
+          typeof rec.asaas_customer_id !== 'string' || rec.asaas_customer_id.trim() === ''
+        ) {
+          return new Response('bad request: dominio, asaas_subscription_id, asaas_customer_id are required', { status: 400 });
+        }
+        await putClient(env.LICENSES, rec);
+        await reissueClient(env, rec, new Date());
+        return new Response('ok');
+      } catch (err) {
+        console.error('admin/client error:', err);
+        return new Response('internal error', { status: 500 });
+      }
     }
 
     return new Response('not found', { status: 404 });
   },
 
   async scheduled(_e: ScheduledEvent, env: Env): Promise<void> {
+    // C1: isolate per-client failures so one bad client doesn't abort the whole cron.
     const now = new Date();
+    const errors: string[] = [];
     for (const rec of await listClients(env.LICENSES)) {
-      await reissueClient(env, rec, now);
+      try {
+        await reissueClient(env, rec, now);
+      } catch (err) {
+        errors.push(`${rec.dominio}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
+    if (errors.length) console.error('cron failures:', errors.join(' | '));
   },
 };

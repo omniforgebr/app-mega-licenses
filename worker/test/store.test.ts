@@ -7,7 +7,10 @@ function fakeKV() {
   return {
     async get(k: string, type?: 'json') { const v = m.get(k); return v == null ? null : (type === 'json' ? JSON.parse(v) : v); },
     async put(k: string, v: string) { m.set(k, v); },
-    async list({ prefix }: { prefix: string }) { return { keys: [...m.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })) }; },
+    // I3: fakeKV now returns list_complete:true so the cursor loop terminates correctly.
+    async list({ prefix }: { prefix: string; limit?: number; cursor?: string }) {
+      return { keys: [...m.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true, cursor: '' };
+    },
   } as unknown as KVNamespace;
 }
 
