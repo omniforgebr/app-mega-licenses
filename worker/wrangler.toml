@@ -11,5 +11,5 @@ id = "REPLACE_WITH_KV_ID"          # output of: wrangler kv namespace create LIC
 crons = ["0 */4 * * *"]            # every 4h
 
 [vars]
-GITHUB_REPO = "omniforge/app-mega-licenses"
+GITHUB_REPO = "omniforgebr/app-mega-licenses"
 KID = "of-license-2026"
