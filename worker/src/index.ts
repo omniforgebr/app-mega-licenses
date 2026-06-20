@@ -1,5 +1,6 @@
 import { reissueClient, type Env } from './publish';
 import { listClients, getClientBySubscription, getClientByDomain, setOverride, putClient } from './store';
+import { handleSeatRoute } from './seatRoutes';
 import type { Override, ClientRecord } from './types';
 
 // I1: timing-safe token comparison to prevent timing-oracle attacks.
@@ -17,6 +18,11 @@ const VALID_OVERRIDES = new Set<Override>(['none', 'force_active', 'force_suspen
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+
+    // Rotas de licença por seat (Portal do Revendedor / login do Mega).
+    // Retorna null se o path não for de seat → segue o fluxo das rotas abaixo.
+    const seatResp = await handleSeatRoute(req, url, env, new Date());
+    if (seatResp) return seatResp;
 
     if (req.method === 'POST' && url.pathname === '/webhook/asaas') {
       // C2: wrap route body; parse errors → 400, other errors → 500.

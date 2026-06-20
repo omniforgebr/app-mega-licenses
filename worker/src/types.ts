@@ -19,3 +19,21 @@ export interface Manifest {
   kid: string;
   sig?: string;         // base64 Ed25519
 }
+
+// ───────────── Portal do Revendedor / licença por seat ─────────────
+
+export interface Reseller {
+  id: string;                  // reseller_id (embutido no build whitelabel)
+  asaas_subscription_id: string;
+  plano_cota: number;          // nº de instalações ativas permitidas
+  status: LicenseStatus;       // active | grace | suspended (do Asaas)
+  kid: string;
+}
+
+export interface Seat {
+  reseller_id: string;
+  user_id: string;             // usuário autenticado no Mega
+  device_id: string;           // install_id gerado no device
+  first_seen: string;          // ISO 8601
+  last_seen: string;           // ISO 8601
+}

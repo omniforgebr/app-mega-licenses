@@ -12,6 +12,7 @@ export interface Env {
   ASAAS_API_KEY: string;      // Secret
   ASAAS_WEBHOOK_TOKEN: string;// Secret
   ADMIN_TOKEN: string;        // Secret (factory /admin -> worker)
+  MEGA_WORKER_SECRET: string; // Secret (login do Mega -> worker, rotas de seat)
   KID: string;                // var
 }
 
