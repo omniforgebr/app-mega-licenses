@@ -33,6 +33,33 @@ export async function fetchSubscriptionPayments(
   return j.data ?? [];
 }
 
+// Cria um Link de Pagamento Asaas (o admin gera e manda pro cliente; o cliente paga
+// sem precisar de cadastro prévio). recurrent=true → assinatura mensal.
+export async function createPaymentLink(
+  apiKey: string,
+  opts: { name: string; value: number; recurrent: boolean; externalReference?: string },
+  base = 'https://api.asaas.com/v3',
+): Promise<{ id: string; url: string }> {
+  const body: Record<string, unknown> = {
+    name: opts.name,
+    billingType: 'UNDEFINED', // cliente escolhe (PIX/boleto/cartão)
+    value: opts.value,
+    chargeType: opts.recurrent ? 'RECURRENT' : 'DETACHED',
+    dueDateLimitDays: 5,
+  };
+  if (opts.recurrent) body.subscriptionCycle = 'MONTHLY';
+  if (opts.externalReference) body.externalReference = opts.externalReference;
+  const r = await fetch(`${base}/paymentLinks`, {
+    method: 'POST',
+    headers: { access_token: apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error('asaas paymentLink ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  const j = (await r.json()) as { id?: string; url?: string };
+  if (!j.url) throw new Error('asaas paymentLink sem url');
+  return { id: j.id ?? '', url: j.url };
+}
+
 export async function fetchSubscription(
   apiKey: string,
   subId: string,

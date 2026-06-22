@@ -171,4 +171,33 @@ describe('resellerAdminRoutes', () => {
     const r = await handleResellerAdminRoute(req, u('/admin/asaas?reseller_id=rev-b'), e, now);
     expect((await r!.json()).has_subscription).toBe(false);
   });
+
+  it('POST /admin/payment-link → cria link de pagamento Asaas (5 × 6,99)', async () => {
+    const { env: e, kv } = env();
+    seedReseller(kv, 'rev-a', 10);
+    const realFetch = global.fetch;
+    global.fetch = (async (url: string, init: { body: string }) => {
+      expect(String(url)).toContain('/paymentLinks');
+      const sent = JSON.parse(init.body);
+      expect(sent.value).toBeCloseTo(34.95);
+      expect(sent.chargeType).toBe('RECURRENT');
+      return { ok: true, status: 200, json: async () => ({ id: 'pl_1', url: 'https://asaas.com/c/abc' }) };
+    }) as unknown as typeof fetch;
+    try {
+      const r = await handleResellerAdminRoute(post('/admin/payment-link', { reseller_id: 'rev-a', conexoes: 5 }, 'adm'), u('/admin/payment-link'), e, now);
+      const b = await r!.json();
+      expect(b.status).toBe('ok');
+      expect(b.url).toBe('https://asaas.com/c/abc');
+      expect(b.value).toBeCloseTo(34.95);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('POST /admin/payment-link com conexoes inválido → 400', async () => {
+    const { env: e, kv } = env();
+    seedReseller(kv, 'rev-a', 10);
+    const r = await handleResellerAdminRoute(post('/admin/payment-link', { reseller_id: 'rev-a', conexoes: 0 }, 'adm'), u('/admin/payment-link'), e, now);
+    expect(r?.status).toBe(400);
+  });
 });

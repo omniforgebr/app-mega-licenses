@@ -1,6 +1,8 @@
 import { getReseller, putReseller, listResellers, countActiveSeats } from './seatStore';
 import { activeCutoff } from './seats';
-import { fetchSubscription, fetchSubscriptionPayments } from './asaas';
+import { fetchSubscription, fetchSubscriptionPayments, createPaymentLink } from './asaas';
+
+const PRECO_CONEXAO = 6.99; // R$ por conexão/mês
 import type { Reseller, LicenseStatus, Plano } from './types';
 
 export interface AdminEnv {
@@ -51,7 +53,8 @@ export async function handleResellerAdminRoute(
     path !== '/admin/resellers' &&
     path !== '/admin/reseller' &&
     path !== '/admin/reseller/status' &&
-    path !== '/admin/asaas'
+    path !== '/admin/asaas' &&
+    path !== '/admin/payment-link'
   ) {
     return null;
   }
@@ -105,6 +108,28 @@ export async function handleResellerAdminRoute(
         },
         200,
       );
+    }
+
+    if (path === '/admin/payment-link') {
+      // Admin gera o link de pagamento (Asaas) p/ mandar ao cliente. Recorrente por padrão.
+      if (req.method !== 'POST') return jsonResponse({ status: 'method_not_allowed' }, 405);
+      const body = (await req.json()) as Record<string, unknown>;
+      const rid = typeof body.reseller_id === 'string' ? body.reseller_id.trim() : '';
+      const conexoes = typeof body.conexoes === 'number' ? body.conexoes : 0;
+      if (!rid || !Number.isInteger(conexoes) || conexoes < 1) {
+        return jsonResponse({ status: 'invalid_request' }, 400);
+      }
+      const reseller = await getReseller(env.LICENSES, rid);
+      if (!reseller) return jsonResponse({ status: 'not_found' }, 404);
+      const recurrent = body.recurrent !== false;
+      const value = Math.round(conexoes * PRECO_CONEXAO * 100) / 100;
+      const link = await createPaymentLink(env.ASAAS_API_KEY, {
+        name: `App Whitelabel ${rid} — ${conexoes} conexao(oes)`,
+        value,
+        recurrent,
+        externalReference: `upgrade:${rid}:${conexoes}`,
+      });
+      return jsonResponse({ status: 'ok', url: link.url, value, conexoes }, 200);
     }
 
     if (path === '/admin/reseller') {
