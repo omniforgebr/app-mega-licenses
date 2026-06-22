@@ -1,5 +1,6 @@
 import { getReseller, putReseller, listResellers, countActiveSeats } from './seatStore';
 import { activeCutoff } from './seats';
+import { fetchSubscription, fetchSubscriptionPayments } from './asaas';
 import type { Reseller, LicenseStatus } from './types';
 
 export interface AdminEnv {
@@ -7,6 +8,7 @@ export interface AdminEnv {
   SEATS_DB: D1Database;
   ADMIN_TOKEN: string;
   KID: string;
+  ASAAS_API_KEY: string;
 }
 
 const VALID_STATUS: ReadonlySet<string> = new Set(['active', 'grace', 'suspended']);
@@ -45,7 +47,12 @@ export async function handleResellerAdminRoute(
   now: Date,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (path !== '/admin/resellers' && path !== '/admin/reseller' && path !== '/admin/reseller/status') {
+  if (
+    path !== '/admin/resellers' &&
+    path !== '/admin/reseller' &&
+    path !== '/admin/reseller/status' &&
+    path !== '/admin/asaas'
+  ) {
     return null;
   }
   if (!authed(req, env.ADMIN_TOKEN)) return jsonResponse({ status: 'forbidden' }, 403);
@@ -65,6 +72,38 @@ export async function handleResellerAdminRoute(
         })),
       );
       return jsonResponse({ resellers: list }, 200);
+    }
+
+    if (path === '/admin/asaas') {
+      // Painel financeiro de um cliente: resumo da assinatura Asaas (status, valor, vencimento, último pagamento).
+      if (req.method !== 'GET') return jsonResponse({ status: 'method_not_allowed' }, 405);
+      const rid = (url.searchParams.get('reseller_id') || '').trim();
+      const reseller = await getReseller(env.LICENSES, rid);
+      if (!reseller) return jsonResponse({ status: 'not_found' }, 404);
+      if (!reseller.asaas_subscription_id) {
+        return jsonResponse({ has_subscription: false }, 200);
+      }
+      const subId = reseller.asaas_subscription_id;
+      const [sub, payments] = await Promise.all([
+        fetchSubscription(env.ASAAS_API_KEY, subId),
+        fetchSubscriptionPayments(env.ASAAS_API_KEY, subId),
+      ]);
+      const sorted = [...payments].filter((p) => p.dueDate).sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+      const last = sorted[0] || null;
+      const overdue = payments.filter((p) => p.status === 'OVERDUE').length;
+      return jsonResponse(
+        {
+          has_subscription: true,
+          subscription_id: subId,
+          subscription_status: sub?.status ?? 'UNKNOWN',
+          value: sub?.value ?? null,
+          cycle: sub?.cycle ?? '',
+          next_due: sub?.nextDueDate ?? null,
+          overdue_count: overdue,
+          last_payment: last ? { status: last.status, due_date: last.dueDate, value: last.value ?? null } : null,
+        },
+        200,
+      );
     }
 
     if (path === '/admin/reseller') {

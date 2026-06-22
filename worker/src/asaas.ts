@@ -2,6 +2,14 @@ export interface AsaasPayment {
   status: string;
   dueDate: string;
   paymentDate: string | null;
+  value?: number;
+}
+
+export interface AsaasSubscription {
+  status: string; // ACTIVE | EXPIRED | INACTIVE
+  value: number;
+  cycle: string; // MONTHLY, etc.
+  nextDueDate: string | null;
 }
 
 const PAID = new Set(['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH']);
@@ -23,4 +31,23 @@ export async function fetchSubscriptionPayments(
   if (!r.ok) throw new Error('asaas payments ' + r.status);
   const j = (await r.json()) as { data?: AsaasPayment[] };
   return j.data ?? [];
+}
+
+export async function fetchSubscription(
+  apiKey: string,
+  subId: string,
+  base = 'https://api.asaas.com/v3',
+): Promise<AsaasSubscription | null> {
+  const r = await fetch(`${base}/subscriptions/${encodeURIComponent(subId)}`, {
+    headers: { access_token: apiKey },
+  });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('asaas subscription ' + r.status);
+  const j = (await r.json()) as Partial<AsaasSubscription>;
+  return {
+    status: j.status ?? 'UNKNOWN',
+    value: typeof j.value === 'number' ? j.value : 0,
+    cycle: j.cycle ?? '',
+    nextDueDate: j.nextDueDate ?? null,
+  };
 }

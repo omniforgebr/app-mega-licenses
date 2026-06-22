@@ -56,7 +56,7 @@ const now = new Date('2026-06-21T12:00:00Z');
 function env(seats: Seat[] = []): { env: AdminEnv; kv: FakeKV } {
   const kv = fakeKV();
   return {
-    env: { LICENSES: kv, SEATS_DB: fakeD1(seats), ADMIN_TOKEN: 'adm', KID: 'of-license-2026' },
+    env: { LICENSES: kv, SEATS_DB: fakeD1(seats), ADMIN_TOKEN: 'adm', KID: 'of-license-2026', ASAAS_API_KEY: 'asaas-test' },
     kv,
   };
 }
@@ -138,5 +138,37 @@ describe('resellerAdminRoutes', () => {
     const req = new Request('https://w/admin/reseller', { method: 'GET', headers: { authorization: 'Bearer adm' } });
     const r = await handleResellerAdminRoute(req, u('/admin/reseller'), e, now);
     expect(r?.status).toBe(405);
+  });
+
+  it('GET /admin/asaas → resumo da assinatura', async () => {
+    const { env: e, kv } = env();
+    seedReseller(kv, 'rev-a', 10); // asaas_subscription_id='sub'
+    const realFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (String(url).includes('/subscriptions/')) {
+        return { ok: true, status: 200, json: async () => ({ status: 'ACTIVE', value: 69.9, cycle: 'MONTHLY', nextDueDate: '2026-07-10' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ data: [{ status: 'OVERDUE', dueDate: '2026-06-10', value: 69.9 }] }) };
+    }) as unknown as typeof fetch;
+    try {
+      const req = new Request('https://w/admin/asaas?reseller_id=rev-a', { method: 'GET', headers: { authorization: 'Bearer adm' } });
+      const r = await handleResellerAdminRoute(req, u('/admin/asaas?reseller_id=rev-a'), e, now);
+      const body = await r!.json();
+      expect(body.has_subscription).toBe(true);
+      expect(body.subscription_status).toBe('ACTIVE');
+      expect(body.value).toBe(69.9);
+      expect(body.overdue_count).toBe(1);
+      expect(body.last_payment.status).toBe('OVERDUE');
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('GET /admin/asaas sem assinatura → has_subscription=false', async () => {
+    const { env: e, kv } = env();
+    kv._m.set('reseller:rev-b', JSON.stringify({ id: 'rev-b', asaas_subscription_id: '', plano_cota: 5, status: 'active', kid: 'k' }));
+    const req = new Request('https://w/admin/asaas?reseller_id=rev-b', { method: 'GET', headers: { authorization: 'Bearer adm' } });
+    const r = await handleResellerAdminRoute(req, u('/admin/asaas?reseller_id=rev-b'), e, now);
+    expect((await r!.json()).has_subscription).toBe(false);
   });
 });
