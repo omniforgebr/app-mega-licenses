@@ -10,6 +10,20 @@ export async function putReseller(kv: KVNamespace, r: Reseller): Promise<void> {
   await kv.put(`reseller:${r.id}`, JSON.stringify(r));
 }
 
+export async function listResellers(kv: KVNamespace): Promise<Reseller[]> {
+  const out: Reseller[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({ prefix: "reseller:", cursor, limit: 1000 });
+    for (const k of page.keys) {
+      const v = (await kv.get(k.name, "json")) as Reseller | null;
+      if (v) out.push(v);
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return out;
+}
+
 // ───────────── Seats (D1 — FORTEMENTE consistente; a contagem de cota precisa disso) ─────────────
 
 export async function upsertSeat(db: D1Database, seat: Seat): Promise<void> {

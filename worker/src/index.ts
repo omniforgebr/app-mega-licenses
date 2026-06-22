@@ -1,6 +1,7 @@
 import { reissueClient, type Env } from './publish';
 import { listClients, getClientBySubscription, getClientByDomain, setOverride, putClient } from './store';
 import { handleSeatRoute } from './seatRoutes';
+import { handleResellerAdminRoute } from './resellerAdminRoutes';
 import type { Override, ClientRecord } from './types';
 
 // I1: timing-safe token comparison to prevent timing-oracle attacks.
@@ -23,6 +24,10 @@ export default {
     // Retorna null se o path não for de seat → segue o fluxo das rotas abaixo.
     const seatResp = await handleSeatRoute(req, url, env, new Date());
     if (seatResp) return seatResp;
+
+    // Painel mestre OmniForge — gestão de revendedores (/admin/resellers, /admin/reseller[/status]).
+    const adminResp = await handleResellerAdminRoute(req, url, env, new Date());
+    if (adminResp) return adminResp;
 
     if (req.method === 'POST' && url.pathname === '/webhook/asaas') {
       // C2: wrap route body; parse errors → 400, other errors → 500.
