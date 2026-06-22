@@ -75,7 +75,8 @@ export async function handleSeatRoute(
   if (path === '/seat/activate') {
     if (req.method !== 'POST') return jsonResponse({ status: 'method_not_allowed' }, 405);
     try {
-      if (!authed(req, env.MEGA_WORKER_SECRET)) return jsonResponse({ status: 'forbidden' }, 403);
+      // O app whitelabel (gerado pela fábrica) chama direto: identidade = reseller_id do build
+      // + install_id + user_id. Sem segredo de servidor (não faz sentido embutir no APK).
       const ids = readSeatIds(await req.json());
       if (!ids) return jsonResponse({ status: 'bad_request' }, 400);
 
