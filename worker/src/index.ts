@@ -2,6 +2,7 @@ import { reissueClient, type Env } from './publish';
 import { listClients, getClientBySubscription, getClientByDomain, setOverride, putClient } from './store';
 import { handleSeatRoute } from './seatRoutes';
 import { handleResellerAdminRoute } from './resellerAdminRoutes';
+import { reconcileResellers } from './asaasReconcile';
 import type { Override, ClientRecord } from './types';
 
 // I1: timing-safe token comparison to prevent timing-oracle attacks.
@@ -129,6 +130,14 @@ export default {
       } catch (err) {
         errors.push(`${rec.dominio}: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+    // Modelo seat/revenda: reconcilia status dos revendedores a partir do Asaas.
+    try {
+      const rec = await reconcileResellers(env, now);
+      if (rec.errors.length) errors.push(...rec.errors);
+      console.log(`reconcile revendedores: checked=${rec.checked} changed=${rec.changed}`);
+    } catch (err) {
+      errors.push(`reconcile: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (errors.length) console.error('cron failures:', errors.join(' | '));
   },
