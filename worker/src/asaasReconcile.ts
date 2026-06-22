@@ -38,8 +38,8 @@ export async function reconcileResellers(
   const errors: string[] = [];
 
   for (const r of resellers) {
-    if (!r.asaas_subscription_id) {
-      continue; // pula quem não tem assinatura atrelada
+    if (r.plano === 'cortesia' || !r.asaas_subscription_id) {
+      continue; // cortesia (isento de cobrança) ou sem assinatura → não reconcilia
     }
 
     checked++;

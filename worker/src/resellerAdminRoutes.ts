@@ -1,7 +1,7 @@
 import { getReseller, putReseller, listResellers, countActiveSeats } from './seatStore';
 import { activeCutoff } from './seats';
 import { fetchSubscription, fetchSubscriptionPayments } from './asaas';
-import type { Reseller, LicenseStatus } from './types';
+import type { Reseller, LicenseStatus, Plano } from './types';
 
 export interface AdminEnv {
   LICENSES: KVNamespace;
@@ -67,6 +67,7 @@ export async function handleResellerAdminRoute(
           id: r.id,
           plano_cota: r.plano_cota,
           status: r.status,
+          plano: r.plano ?? 'pago',
           asaas_subscription_id: r.asaas_subscription_id,
           ativos: await countActiveSeats(env.SEATS_DB, r.id, cutoff),
         })),
@@ -127,7 +128,14 @@ export async function handleResellerAdminRoute(
         typeof body.asaas_subscription_id === 'string'
           ? body.asaas_subscription_id
           : existing?.asaas_subscription_id ?? '';
-      const rec: Reseller = { id, asaas_subscription_id: asaas, plano_cota: cota, status, kid: env.KID };
+      let plano: Plano = existing?.plano ?? 'pago';
+      if (body.plano !== undefined) {
+        if (body.plano !== 'pago' && body.plano !== 'cortesia') {
+          return jsonResponse({ status: 'invalid_plano' }, 400);
+        }
+        plano = body.plano;
+      }
+      const rec: Reseller = { id, asaas_subscription_id: asaas, plano_cota: cota, status, kid: env.KID, plano };
       await putReseller(env.LICENSES, rec);
       return jsonResponse({ status: 'ok', reseller: rec }, 200);
     }

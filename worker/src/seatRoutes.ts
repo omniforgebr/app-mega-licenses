@@ -90,7 +90,8 @@ export async function handleSeatRoute(
         seat = { ...existing, last_seen: now.toISOString() }; // renovação — não conta cota
       } else {
         const ativos = await countActiveSeats(env.SEATS_DB, ids.reseller_id, activeCutoff(now));
-        if (!withinQuota(ativos, reseller.plano_cota)) {
+        // plano 'cortesia' (free/personalizado) = cota ilimitada: nunca estoura.
+        if (reseller.plano !== 'cortesia' && !withinQuota(ativos, reseller.plano_cota)) {
           return jsonResponse({ status: 'quota_exceeded' }, 403);
         }
         seat = { ...ids, first_seen: now.toISOString(), last_seen: now.toISOString() };

@@ -22,12 +22,15 @@ export interface Manifest {
 
 // ───────────── Portal do Revendedor / licença por seat ─────────────
 
+export type Plano = 'pago' | 'cortesia';
+
 export interface Reseller {
   id: string;                  // reseller_id (embutido no build whitelabel)
   asaas_subscription_id: string;
   plano_cota: number;          // nº de instalações ativas permitidas
   status: LicenseStatus;       // active | grace | suspended (do Asaas)
   kid: string;
+  plano?: Plano;               // 'cortesia' = licença free/personalizada: cota ilimitada + isenta de cobrança (default 'pago')
 }
 
 export interface Seat {

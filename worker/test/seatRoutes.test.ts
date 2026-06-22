@@ -148,6 +148,13 @@ describe('seatRoutes /seat/activate (D1)', () => {
     const r = await handleSeatRoute(post('/seat/activate', { reseller_id: RID, user_id: 'u2', device_id: 'd2' }, 'mega-secret'), u('/seat/activate'), env, now);
     expect((await r!.json()).status).toBe('quota_exceeded');
   });
+  it('plano cortesia → cota ilimitada (não estoura acima da cota)', async () => {
+    const { env, kv, db } = await makeEnv();
+    kv._m.set(`reseller:${RID}`, JSON.stringify({ id: RID, asaas_subscription_id: '', plano_cota: 1, status: 'active', kid: 'k', plano: 'cortesia' }));
+    seedSeat(db, 'u1', 'd1'); // já ocupa a cota 1
+    const r = await handleSeatRoute(post('/seat/activate', { reseller_id: RID, user_id: 'u2', device_id: 'd2' }, 'mega-secret'), u('/seat/activate'), env, now);
+    expect((await r!.json()).status).toBe('active');
+  });
   it('existing seat at full quota → renews (active)', async () => {
     const { env, kv, db } = await makeEnv();
     seedReseller(kv, 1);
