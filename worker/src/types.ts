@@ -31,6 +31,13 @@ export interface Reseller {
   status: LicenseStatus;       // active | grace | suspended (do Asaas)
   kid: string;
   plano?: Plano;               // 'cortesia' = licença free/personalizada: cota ilimitada + isenta de cobrança (default 'pago')
+  // Dados empresariais (cadastro / cobrança Asaas)
+  empresa?: string;            // razão social / nome fantasia
+  nome?: string;               // nome do responsável (contato)
+  cpf_cnpj?: string;           // p/ criar o cliente no Asaas
+  email?: string;
+  telefone?: string;
+  dominio?: string;            // instância Mega do cliente
 }
 
 export interface Seat {

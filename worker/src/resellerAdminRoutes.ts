@@ -72,6 +72,12 @@ export async function handleResellerAdminRoute(
           status: r.status,
           plano: r.plano ?? 'pago',
           asaas_subscription_id: r.asaas_subscription_id,
+          empresa: r.empresa ?? '',
+          nome: r.nome ?? '',
+          cpf_cnpj: r.cpf_cnpj ?? '',
+          email: r.email ?? '',
+          telefone: r.telefone ?? '',
+          dominio: r.dominio ?? '',
           ativos: await countActiveSeats(env.SEATS_DB, r.id, cutoff),
         })),
       );
@@ -171,7 +177,22 @@ export async function handleResellerAdminRoute(
         }
         plano = body.plano;
       }
-      const rec: Reseller = { id, asaas_subscription_id: asaas, plano_cota: cota, status, kid: env.KID, plano };
+      const str = (k: string, fallback: string | undefined): string | undefined =>
+        typeof body[k] === 'string' ? (body[k] as string).trim() : fallback;
+      const rec: Reseller = {
+        id,
+        asaas_subscription_id: asaas,
+        plano_cota: cota,
+        status,
+        kid: env.KID,
+        plano,
+        empresa: str('empresa', existing?.empresa),
+        nome: str('nome', existing?.nome),
+        cpf_cnpj: str('cpf_cnpj', existing?.cpf_cnpj),
+        email: str('email', existing?.email),
+        telefone: str('telefone', existing?.telefone),
+        dominio: str('dominio', existing?.dominio),
+      };
       await putReseller(env.LICENSES, rec);
       return jsonResponse({ status: 'ok', reseller: rec }, 200);
     }
