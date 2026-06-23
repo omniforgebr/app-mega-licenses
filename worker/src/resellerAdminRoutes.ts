@@ -123,6 +123,13 @@ export async function handleResellerAdminRoute(
       if (!reseller) return jsonResponse({ status: 'not_found' }, 404);
       const recurrent = body.recurrent !== false;
       const value = Math.round(conexoes * PRECO_CONEXAO * 100) / 100;
+      if (value < 10) {
+        // Asaas exige mínimo R$ 10,00 por cobrança PIX/boleto.
+        return jsonResponse(
+          { status: 'valor_minimo', message: 'O Asaas exige no mínimo R$ 10,00 por cobrança (PIX/boleto). Gere a partir de 2 conexões.' },
+          400,
+        );
+      }
       const link = await createPaymentLink(env.ASAAS_API_KEY, {
         name: `App Whitelabel ${rid} — ${conexoes} conexao(oes)`,
         value,
@@ -133,7 +140,7 @@ export async function handleResellerAdminRoute(
       if (link.id) {
         await env.LICENSES.put(`pl:${link.id}`, JSON.stringify({ reseller_id: rid, conexoes, released: false }));
       }
-      return jsonResponse({ status: 'ok', url: link.url, value, conexoes }, 200);
+      return jsonResponse({ status: 'ok', url: link.url, link_id: link.id, value, conexoes }, 200);
     }
 
     if (path === '/admin/reseller') {

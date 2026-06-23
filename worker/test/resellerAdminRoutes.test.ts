@@ -200,4 +200,12 @@ describe('resellerAdminRoutes', () => {
     const r = await handleResellerAdminRoute(post('/admin/payment-link', { reseller_id: 'rev-a', conexoes: 0 }, 'adm'), u('/admin/payment-link'), e, now);
     expect(r?.status).toBe(400);
   });
+
+  it('POST /admin/payment-link valor < R$10 (1 conexão) → valor_minimo', async () => {
+    const { env: e, kv } = env();
+    seedReseller(kv, 'rev-a', 10);
+    const r = await handleResellerAdminRoute(post('/admin/payment-link', { reseller_id: 'rev-a', conexoes: 1 }, 'adm'), u('/admin/payment-link'), e, now);
+    expect(r?.status).toBe(400);
+    expect((await r!.json()).status).toBe('valor_minimo');
+  });
 });
