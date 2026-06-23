@@ -27,6 +27,7 @@ export type Plano = 'pago' | 'cortesia';
 export interface Reseller {
   id: string;                  // reseller_id (embutido no build whitelabel)
   asaas_subscription_id: string;
+  asaas_customer_id?: string;  // cliente Asaas (criado a partir do CNPJ/CPF)
   plano_cota: number;          // nº de instalações ativas permitidas
   status: LicenseStatus;       // active | grace | suspended (do Asaas)
   kid: string;

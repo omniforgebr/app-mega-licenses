@@ -24,6 +24,11 @@ export async function listResellers(kv: KVNamespace): Promise<Reseller[]> {
   return out;
 }
 
+export async function getResellerBySubscription(kv: KVNamespace, subId: string): Promise<Reseller | null> {
+  const all = await listResellers(kv);
+  return all.find((r) => r.asaas_subscription_id === subId) ?? null;
+}
+
 // ───────────── Seats (D1 — FORTEMENTE consistente; a contagem de cota precisa disso) ─────────────
 
 export async function upsertSeat(db: D1Database, seat: Seat): Promise<void> {

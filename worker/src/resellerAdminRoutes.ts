@@ -1,6 +1,6 @@
 import { getReseller, putReseller, listResellers, countActiveSeats } from './seatStore';
 import { activeCutoff } from './seats';
-import { fetchSubscription, fetchSubscriptionPayments, createPaymentLink } from './asaas';
+import { fetchSubscription, fetchSubscriptionPayments, createCustomer, createSubscription, subscriptionPaymentUrl } from './asaas';
 
 const PRECO_CONEXAO = 6.99; // R$ por conexão/mês
 import type { Reseller, LicenseStatus, Plano } from './types';
@@ -127,26 +127,42 @@ export async function handleResellerAdminRoute(
       }
       const reseller = await getReseller(env.LICENSES, rid);
       if (!reseller) return jsonResponse({ status: 'not_found' }, 404);
-      const recurrent = body.recurrent !== false;
       const value = Math.round(conexoes * PRECO_CONEXAO * 100) / 100;
       if (value < 10) {
-        // Asaas exige mínimo R$ 10,00 por cobrança PIX/boleto.
         return jsonResponse(
-          { status: 'valor_minimo', message: 'O Asaas exige no mínimo R$ 10,00 por cobrança (PIX/boleto). Gere a partir de 2 conexões.' },
+          { status: 'valor_minimo', message: 'O Asaas exige no mínimo R$ 10,00 por cobrança. Gere a partir de 2 conexões.' },
           400,
         );
       }
-      const link = await createPaymentLink(env.ASAAS_API_KEY, {
-        name: `App Whitelabel ${rid} — ${conexoes} conexao(oes)`,
-        value,
-        recurrent,
-        externalReference: `upgrade:${rid}:${conexoes}`,
-      });
-      // Mapa p/ o webhook auto-liberar a cota quando o cliente pagar este link.
-      if (link.id) {
-        await env.LICENSES.put(`pl:${link.id}`, JSON.stringify({ reseller_id: rid, conexoes, released: false }));
+      // Cobrança amarrada ao cliente (com CNPJ/CPF) — exige Responsável + documento.
+      if (!reseller.nome || !reseller.cpf_cnpj) {
+        return jsonResponse(
+          { status: 'dados_incompletos', message: 'Preencha Responsável e CPF/CNPJ do cliente antes de gerar a cobrança.' },
+          400,
+        );
       }
-      return jsonResponse({ status: 'ok', url: link.url, link_id: link.id, value, conexoes }, 200);
+      let customerId = reseller.asaas_customer_id;
+      if (!customerId) {
+        const cust = await createCustomer(env.ASAAS_API_KEY, {
+          name: reseller.nome,
+          cpfCnpj: reseller.cpf_cnpj,
+          email: reseller.email,
+          phone: reseller.telefone,
+        });
+        customerId = cust.id;
+      }
+      const due = new Date(now.getTime()).toISOString().slice(0, 10); // primeira cobrança hoje
+      const sub = await createSubscription(env.ASAAS_API_KEY, {
+        customer: customerId,
+        value,
+        nextDueDate: due,
+        externalReference: `cliente:${rid}`,
+      });
+      const url = await subscriptionPaymentUrl(env.ASAAS_API_KEY, sub.id);
+      reseller.asaas_customer_id = customerId;
+      reseller.asaas_subscription_id = sub.id;
+      await putReseller(env.LICENSES, reseller);
+      return jsonResponse({ status: 'ok', url, subscription_id: sub.id, customer_id: customerId, value, conexoes }, 200);
     }
 
     if (path === '/admin/reseller') {

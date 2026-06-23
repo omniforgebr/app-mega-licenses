@@ -52,7 +52,7 @@ export default {
         }
         // Auto-liberação de upgrade: cliente pagou o link → cota += conexões (idempotente).
         const release = await handleUpgradePayment(env, body);
-        if (release.released) console.log(`upgrade liberado: ${release.reseller_id} +${release.conexoes}`);
+        if (release.released) console.log(`licença ativada (pagamento): ${release.reseller_id}`);
         return new Response('ok');
       } catch (err) {
         console.error('asaas webhook error:', err);

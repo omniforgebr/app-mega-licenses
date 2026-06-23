@@ -172,26 +172,42 @@ describe('resellerAdminRoutes', () => {
     expect((await r!.json()).has_subscription).toBe(false);
   });
 
-  it('POST /admin/payment-link → cria link de pagamento Asaas (5 × 6,99)', async () => {
+  it('POST /admin/payment-link → cria cliente Asaas + assinatura (5 × 6,99)', async () => {
     const { env: e, kv } = env();
-    seedReseller(kv, 'rev-a', 10);
+    kv._m.set(
+      'reseller:rev-a',
+      JSON.stringify({ id: 'rev-a', asaas_subscription_id: '', plano_cota: 10, status: 'active', kid: 'k', nome: 'Joao', cpf_cnpj: '12345678000190', email: 'j@x.com' }),
+    );
     const realFetch = global.fetch;
-    global.fetch = (async (url: string, init: { body: string }) => {
-      expect(String(url)).toContain('/paymentLinks');
-      const sent = JSON.parse(init.body);
-      expect(sent.value).toBeCloseTo(34.95);
-      expect(sent.chargeType).toBe('RECURRENT');
-      return { ok: true, status: 200, json: async () => ({ id: 'pl_1', url: 'https://asaas.com/c/abc' }) };
+    global.fetch = (async (url: string, init?: { body?: string }) => {
+      const u2 = String(url);
+      if (u2.includes('/customers')) return { ok: true, status: 200, json: async () => ({ id: 'cus_1' }) };
+      if (u2.includes('/subscriptions')) {
+        expect(JSON.parse(init!.body!).value).toBeCloseTo(34.95);
+        return { ok: true, status: 200, json: async () => ({ id: 'sub_new' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ data: [{ invoiceUrl: 'https://asaas.com/i/abc' }] }) };
     }) as unknown as typeof fetch;
     try {
       const r = await handleResellerAdminRoute(post('/admin/payment-link', { reseller_id: 'rev-a', conexoes: 5 }, 'adm'), u('/admin/payment-link'), e, now);
       const b = await r!.json();
       expect(b.status).toBe('ok');
-      expect(b.url).toBe('https://asaas.com/c/abc');
-      expect(b.value).toBeCloseTo(34.95);
+      expect(b.url).toBe('https://asaas.com/i/abc');
+      expect(b.subscription_id).toBe('sub_new');
+      const saved = JSON.parse((kv as { _m: Map<string, string> })._m.get('reseller:rev-a')!);
+      expect(saved.asaas_customer_id).toBe('cus_1');
+      expect(saved.asaas_subscription_id).toBe('sub_new');
     } finally {
       global.fetch = realFetch;
     }
+  });
+
+  it('POST /admin/payment-link sem nome/CNPJ → dados_incompletos', async () => {
+    const { env: e, kv } = env();
+    seedReseller(kv, 'rev-a', 10); // sem nome/cpf_cnpj
+    const r = await handleResellerAdminRoute(post('/admin/payment-link', { reseller_id: 'rev-a', conexoes: 5 }, 'adm'), u('/admin/payment-link'), e, now);
+    expect(r?.status).toBe(400);
+    expect((await r!.json()).status).toBe('dados_incompletos');
   });
 
   it('POST /admin/payment-link com conexoes inválido → 400', async () => {
