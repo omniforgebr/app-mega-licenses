@@ -129,6 +129,10 @@ export async function handleResellerAdminRoute(
         recurrent,
         externalReference: `upgrade:${rid}:${conexoes}`,
       });
+      // Mapa p/ o webhook auto-liberar a cota quando o cliente pagar este link.
+      if (link.id) {
+        await env.LICENSES.put(`pl:${link.id}`, JSON.stringify({ reseller_id: rid, conexoes, released: false }));
+      }
       return jsonResponse({ status: 'ok', url: link.url, value, conexoes }, 200);
     }
 

@@ -3,6 +3,7 @@ import { listClients, getClientBySubscription, getClientByDomain, setOverride, p
 import { handleSeatRoute } from './seatRoutes';
 import { handleResellerAdminRoute } from './resellerAdminRoutes';
 import { reconcileResellers } from './asaasReconcile';
+import { handleUpgradePayment } from './upgradeRelease';
 import type { Override, ClientRecord } from './types';
 
 // I1: timing-safe token comparison to prevent timing-oracle attacks.
@@ -37,9 +38,9 @@ export default {
         if (!timingSafeEqual(req.headers.get('asaas-access-token') ?? '', env.ASAAS_WEBHOOK_TOKEN)) {
           return new Response('forbidden', { status: 403 });
         }
-        let body: { payment?: { subscription?: string } };
+        let body: { event?: string; payment?: { subscription?: string; paymentLink?: string } };
         try {
-          body = (await req.json()) as { payment?: { subscription?: string } };
+          body = (await req.json()) as { event?: string; payment?: { subscription?: string; paymentLink?: string } };
         } catch {
           console.error('asaas webhook: malformed JSON body');
           return new Response('bad request', { status: 400 });
@@ -49,6 +50,9 @@ export default {
           const rec = await getClientBySubscription(env.LICENSES, subId);
           if (rec) await reissueClient(env, rec, new Date());
         }
+        // Auto-liberação de upgrade: cliente pagou o link → cota += conexões (idempotente).
+        const release = await handleUpgradePayment(env, body);
+        if (release.released) console.log(`upgrade liberado: ${release.reseller_id} +${release.conexoes}`);
         return new Response('ok');
       } catch (err) {
         console.error('asaas webhook error:', err);
